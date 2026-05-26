@@ -151,3 +151,11 @@ Inside the JSON file, it looks like this:
 }
 ```
 
+---
+
+# To create an Executable file
+
+```
+pyinstaller --noconfirm --onefile --windowed notifiy_sys.py --collect-all pygame --icon "notification_bell.ico"
+```
+
