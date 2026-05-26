@@ -1,13 +1,11 @@
-PD Run Monitoring Alert System
+# PD Run Monitoring Alert System
 Think of this tool as a quiet control-tower assistant for physical design runs: 
-
-it keeps watch over remote folders, notices when activity slows down, and 
-
-sounds an alert when a run appears to be stuck.
+- it keeps watch over remote folders,
+- notices when activity slows down, and 
+- sounds an alert when a run appears to be stuck.
 
 Purpose
 This system improves the PD workflow during unpredictable place-and-route and signoff stages by reducing downtime.
-
  It helps the PD team monitor multiple block runs more effectively and respond sooner when progress stops.
 
 Overview
