@@ -28,6 +28,7 @@ Purpose
 - Monitoring continues even after the alert sound starts.
 - If the SSH connection drops, the app logs the error and automatically retries the connection.
 - Pressing Stop immediately stops both monitoring and the music.
+- Pressing Remonitoring starts asynchronous monitoring of the timeout for a specific path
 - Closing the app saves the latest inputs to JSON and exits cleanly.
 
 > Notes
