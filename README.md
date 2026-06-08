@@ -156,7 +156,7 @@ Inside the JSON file, it looks like this:
 ---
 # How to Get the Application 
 ### 1. Directly download the Executable from above
-- notify_sys.exe
+- [notify_sys.exe](https://altera-my.sharepoint.com/:u:/r/personal/yee_liang_sak_altera_com/Documents/Microsoft%20Teams%20Chat%20Files/notifiy_sys.exe?csf=1&web=1&e=2R7fLl)
 
 ### 2. Create your own Executable file
 - After copying the code from notify_sys.py, place below code into your IDE
