@@ -76,7 +76,7 @@ OR you can directly open the Application and Press Start Monitoring to check the
  
 # Application Interface & Usage
 
-<img width="1902" height="1059" alt="image" src="https://github.com/user-attachments/assets/a58d674a-d4be-4541-b3dd-b563d838e86c" />
+<img width="1935" height="1082" alt="image" src="https://github.com/user-attachments/assets/acb95c92-c72b-4dbe-a3cf-c60339d29418" />
 
 ### 1. Connection Settings
 <img width="759" height="150" alt="image" src="https://github.com/user-attachments/assets/1f35ab15-3b41-4015-b6b1-b0cff9bb550b" />
@@ -95,10 +95,11 @@ MP3 file: Browse an mp3 sound or music long enough to alert you
  
 ### 2. Remote Directories Settings
 Initial rows: Set the number of path directories to monitor and press Generate Rows to create the rows
-<img width="1262" height="202" alt="image" src="https://github.com/user-attachments/assets/20459d4d-f0f0-4967-b0d4-999a7bec7e53" />
+<img width="1069" height="190" alt="image" src="https://github.com/user-attachments/assets/e6f94a9b-5081-443b-b1c6-19c3ab8a0407" />
 
 - Or add a path row manually by pressing Add Directory
 - Remove a row by pressing the right-most Remove button
+- You are able to restart the monitoring process by pressing Remonitor button
 Timeout (H:M:S): Set different timeout durations for each path
 - Example: 10 minutes timeout triggers alert/music if no changes occur in the path
 
