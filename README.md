@@ -154,8 +154,12 @@ Inside the JSON file, it looks like this:
 ```
 
 ---
+# How to Get the Application 
+### 1. Directly download the Executable from above
+- notify_sys.exe
 
-# To create an Executable file
+### 2. Create your own Executable file
+- After copying the code from notify_sys.py, place below code into your IDE
 
 ```
 pyinstaller --noconfirm --onefile --windowed notifiy_sys.py --collect-all pygame --icon "notification_bell.ico"
