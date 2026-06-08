@@ -130,6 +130,7 @@ class MonitorWorker(threading.Thread):
         self.settings = settings
         self.event_queue = event_queue
         self.stop_event = stop_event
+        self.state_lock = threading.Lock()
 
         self.ssh_client = None
         self.sftp = None
@@ -179,22 +180,49 @@ class MonitorWorker(threading.Thread):
 
     def initialize_directory_state(self):
         now = time.time()
-        self.previous_snapshots.clear()
-        self.last_change_time.clear()
-        self.timeout_triggered.clear()
+        with self.state_lock:
+            self.previous_snapshots.clear()
+            self.last_change_time.clear()
+            self.timeout_triggered.clear()
 
-        for directory in self.settings.directories:
+            for directory in self.settings.directories:
+                try:
+                    snapshot = self.get_snapshot(directory)
+                    self.previous_snapshots[directory] = snapshot
+                    self.last_change_time[directory] = now
+                    self.timeout_triggered[directory] = False
+                    self.emit("directory_ready", directory=directory, message="Ready")
+                except Exception as exc:
+                    self.previous_snapshots[directory] = {}
+                    self.last_change_time[directory] = now
+                    self.timeout_triggered[directory] = False
+                    self.emit("directory_error", directory=directory, message=f"Cannot access directory: {exc}")
+
+    def remonitor_directory(self, directory: str) -> tuple[bool, str]:
+        with self.state_lock:
+            if directory not in self.settings.directories:
+                return False, "Directory is not part of the active monitoring list."
+            if self.sftp is None:
+                return False, "SSH/SFTP is not currently connected."
+
             try:
                 snapshot = self.get_snapshot(directory)
-                self.previous_snapshots[directory] = snapshot
-                self.last_change_time[directory] = now
-                self.timeout_triggered[directory] = False
-                self.emit("directory_ready", directory=directory, message="Ready")
             except Exception as exc:
-                self.previous_snapshots[directory] = {}
-                self.last_change_time[directory] = now
-                self.timeout_triggered[directory] = False
-                self.emit("directory_error", directory=directory, message=f"Cannot access directory: {exc}")
+                self.emit("directory_error", directory=directory, message=f"Cannot remonitor directory: {exc}")
+                return False, f"Cannot access directory: {exc}"
+
+            self.previous_snapshots[directory] = snapshot
+            self.last_change_time[directory] = time.time()
+            self.timeout_triggered[directory] = False
+            remaining = self.settings.directory_timeouts.get(directory, 0)
+
+        self.emit(
+            "directory_remonitored",
+            directory=directory,
+            remaining_seconds=remaining,
+            message="Directory monitoring timer reset.",
+        )
+        return True, "Directory monitoring timer reset."
 
     def run(self):
         try:
@@ -223,27 +251,28 @@ class MonitorWorker(threading.Thread):
                 if self.stop_event.is_set():
                     break
 
-                try:
-                    current_snapshot = self.get_snapshot(directory)
-                except Exception as exc:
-                    self.emit("directory_error", directory=directory, message=f"Directory read failed: {exc}")
-                    continue
+                with self.state_lock:
+                    try:
+                        current_snapshot = self.get_snapshot(directory)
+                    except Exception as exc:
+                        self.emit("directory_error", directory=directory, message=f"Directory read failed: {exc}")
+                        continue
 
-                previous_snapshot = self.previous_snapshots.get(directory, {})
-                if current_snapshot != previous_snapshot:
-                    self._emit_changes(directory, previous_snapshot, current_snapshot)
-                    self.previous_snapshots[directory] = current_snapshot
-                    self.last_change_time[directory] = now
-                    self.timeout_triggered[directory] = False
+                    previous_snapshot = self.previous_snapshots.get(directory, {})
+                    if current_snapshot != previous_snapshot:
+                        self._emit_changes(directory, previous_snapshot, current_snapshot)
+                        self.previous_snapshots[directory] = current_snapshot
+                        self.last_change_time[directory] = now
+                        self.timeout_triggered[directory] = False
 
-                elapsed = now - self.last_change_time.get(directory, now)
-                timeout_seconds = self.settings.directory_timeouts.get(directory, 0)
-                remaining = max(0, timeout_seconds - int(elapsed))
-                self.emit("countdown", directory=directory, remaining_seconds=remaining)
+                    elapsed = now - self.last_change_time.get(directory, now)
+                    timeout_seconds = self.settings.directory_timeouts.get(directory, 0)
+                    remaining = max(0, timeout_seconds - int(elapsed))
+                    self.emit("countdown", directory=directory, remaining_seconds=remaining)
 
-                if elapsed >= timeout_seconds and not self.timeout_triggered.get(directory, False):
-                    self.timeout_triggered[directory] = True
-                    self.emit("timeout", directory=directory, message="Timeout reached with no changes.")
+                    if elapsed >= timeout_seconds and not self.timeout_triggered.get(directory, False):
+                        self.timeout_triggered[directory] = True
+                        self.emit("timeout", directory=directory, message="Timeout reached with no changes.")
 
             if self._sleep_with_stop(DEFAULT_POLL_INTERVAL):
                 return
@@ -279,7 +308,7 @@ class MonitorWorker(threading.Thread):
 class NotifyApp(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("SSH Directory Inactivity Alert System")
+        self.title("SSH Directory Timeout Monitoring System")
         self._apply_window_icon()
         self.geometry("1100x760")
         self.minsize(980, 680)
@@ -462,6 +491,8 @@ class NotifyApp(tk.Tk):
         ttk.Entry(row_frame, textvariable=timeout_m_var, width=4).pack(side=LEFT)
         ttk.Label(row_frame, text=":").pack(side=LEFT)
         ttk.Entry(row_frame, textvariable=timeout_s_var, width=4).pack(side=LEFT)
+        remonitor_btn = ttk.Button(row_frame, text="Remonitor", command=lambda: self.remonitor_row(row_frame))
+        remonitor_btn.pack(side=LEFT, padx=(6, 0))
         remove_btn = ttk.Button(row_frame, text="Remove", command=lambda: self.remove_directory_row(row_frame))
         remove_btn.pack(side=LEFT, padx=(6, 0))
 
@@ -473,9 +504,33 @@ class NotifyApp(tk.Tk):
                 "timeout_h_var": timeout_h_var,
                 "timeout_m_var": timeout_m_var,
                 "timeout_s_var": timeout_s_var,
+                "remonitor": remonitor_btn,
                 "remove": remove_btn,
             }
         )
+
+    def remonitor_row(self, frame):
+        row = next((r for r in self.directory_rows if r["frame"] == frame), None)
+        if row is None:
+            return
+
+        directory = row["var"].get().strip()
+        if not directory:
+            messagebox.showwarning("Missing Directory", "Please enter a directory path first.")
+            return
+
+        if self.worker is None or not self.worker.is_alive():
+            messagebox.showinfo("Not Running", "Monitoring is not running right now.")
+            return
+
+        ok, detail = self.worker.remonitor_directory(directory)
+        if ok:
+            self.append_log(f"REMONITOR [{directory}] {detail}")
+            self._set_directory_state(directory, state="Monitoring")
+            timeout_seconds = self.worker.settings.directory_timeouts.get(directory, 0)
+            self._set_directory_remaining(directory, timeout_seconds)
+        else:
+            messagebox.showerror("Remonitor Failed", detail)
 
     def remove_directory_row(self, frame):
         if len(self.directory_rows) <= 1:
@@ -754,16 +809,51 @@ class NotifyApp(tk.Tk):
             self.append_log(f"TIMEOUT [{directory}] {event.get('message', '')}")
             self._set_directory_state(directory, state="Timeout")
             self._set_directory_remaining(directory, 0)
+            self.show_timeout_popup(directory)
             if self.worker is not None:
                 ok, detail = self.audio_player.trigger(self.worker.settings.mp3_path)
                 if ok:
                     self.append_log(f"Playback event [{directory}]: {detail}")
                 else:
                     self.append_log(f"Playback error [{directory}]: {detail}")
+        elif event_type == "directory_remonitored":
+            directory = event.get("directory", "")
+            remaining = int(event.get("remaining_seconds", 0))
+            self.append_log(f"REMONITOR [{directory}] {event.get('message', '')}")
+            self._set_directory_state(directory, state="Monitoring")
+            self._set_directory_remaining(directory, remaining)
         elif event_type == "stopped":
             self.append_log(event.get("message", "Stopped"))
             self.worker = None
             self.set_buttons_running(False)
+
+    def show_timeout_popup(self, directory: str):
+        popup = tk.Toplevel(self)
+        popup.title("Directory Timeout Alert")
+        width = 460
+        height = 180
+        screen_w = popup.winfo_screenwidth()
+        screen_h = popup.winfo_screenheight()
+        pos_x = max(0, (screen_w - width) // 2)
+        pos_y = max(0, (screen_h - height) // 2)
+        popup.geometry(f"{width}x{height}+{pos_x}+{pos_y}")
+        popup.minsize(420, 150)
+        popup.transient(self)
+
+        container = ttk.Frame(popup, padding=14)
+        container.pack(fill=BOTH, expand=True)
+
+        ttk.Label(container, text="Monitoring timeout detected.", font=("Segoe UI", 11, "bold")).pack(anchor=W)
+        ttk.Label(container, text=f"Timed out path: {directory}", wraplength=420, justify=LEFT).pack(anchor=W, pady=(8, 4))
+        ttk.Label(container, text="Use the Remonitor button for this row to restart only this path.", wraplength=420, justify=LEFT).pack(anchor=W)
+
+        actions = ttk.Frame(container)
+        actions.pack(fill=X, pady=(12, 0))
+        ttk.Button(actions, text="Close", command=popup.destroy).pack(side=RIGHT)
+
+        popup.lift()
+        popup.attributes("-topmost", True)
+        popup.after(500, lambda: popup.attributes("-topmost", False))
 
     def _set_directory_state(self, directory: str, state: str):
         item = self.directory_status_items.get(directory)
