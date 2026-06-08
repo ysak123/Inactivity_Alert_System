@@ -421,7 +421,7 @@ class NotifyApp(tk.Tk):
 
         footer = ttk.Frame(root, padding=(0, 8, 0, 0))
         footer.pack(fill=X)
-        ttk.Label(footer, text="version=1.0").pack(side=RIGHT)
+        ttk.Label(footer, text="version=2.0").pack(side=RIGHT)
         ttk.Label(footer, text="Please feedback any bug to yee.liang.sak@altera.com").pack(anchor=W)
         doc_label = ttk.Label(
             footer,
