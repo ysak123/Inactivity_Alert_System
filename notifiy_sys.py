@@ -255,6 +255,9 @@ class MonitorWorker(threading.Thread):
                     try:
                         current_snapshot = self.get_snapshot(directory)
                     except Exception as exc:
+                        if self._should_reconnect_on_error(exc):
+                            # Bubble up so run() can close handles and reconnect.
+                            raise RuntimeError(f"Connection lost while reading {directory}: {exc}") from exc
                         self.emit("directory_error", directory=directory, message=f"Directory read failed: {exc}")
                         continue
 
@@ -276,6 +279,30 @@ class MonitorWorker(threading.Thread):
 
             if self._sleep_with_stop(DEFAULT_POLL_INTERVAL):
                 return
+
+    def _should_reconnect_on_error(self, exc: Exception) -> bool:
+        reconnect_types = (
+            paramiko.SSHException,
+            paramiko.ssh_exception.NoValidConnectionsError,
+            OSError,
+            EOFError,
+        )
+
+        current = exc
+        visited = set()
+        while current is not None and id(current) not in visited:
+            visited.add(id(current))
+
+            if isinstance(current, reconnect_types):
+                return True
+
+            text = str(current).lower()
+            if "socket is closed" in text or "connection reset" in text or "broken pipe" in text:
+                return True
+
+            current = current.__cause__ or current.__context__
+
+        return False
 
     def _emit_changes(self, directory: str, old_snapshot: dict, new_snapshot: dict):
         new_files = set(new_snapshot) - set(old_snapshot)
