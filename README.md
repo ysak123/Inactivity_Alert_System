@@ -75,22 +75,21 @@ OR you can directly open the Application and Press Start Monitoring to check the
 ---
  
 # Application Interface & Usage
-
-<img width="1935" height="1082" alt="image" src="https://github.com/user-attachments/assets/acb95c92-c72b-4dbe-a3cf-c60339d29418" />
+<img width="1888" height="1047" alt="image" src="https://github.com/user-attachments/assets/e46cc3ed-59a4-4b5b-9532-086ddb17333f" />
 
 ### 1. Connection Settings
-<img width="759" height="150" alt="image" src="https://github.com/user-attachments/assets/1f35ab15-3b41-4015-b6b1-b0cff9bb550b" />
+<img width="711" height="166" alt="image" src="https://github.com/user-attachments/assets/739f7d1c-62d5-4778-8733-5eeb96a4b93c" />
 
 SSH Host: Check your hostname on the Enclave Server (Linux)
-
 
 ```
 hostname -f
 ```
 SSH Username: Your username on the Enclave Server
 Private Key: If you configured SSH, it should be at C:\Users\<your_username>\.ssh\id_rsa
-MP3 file: Browse an mp3 sound or music long enough to alert you
+Music file: Browse an .wave or mp3 file that able to alert you while away
 - Stop the alert/music by pressing Stop Music when music is Ongoing.
+- The Default music file is C:/Windows/Media/Alarm01.wav, user able to set the duration of the alert
 
  
 ### 2. Remote Directories Settings
@@ -164,4 +163,15 @@ Inside the JSON file, it looks like this:
 ```
 pyinstaller --noconfirm --onefile --windowed notifiy_sys.py --collect-all pygame --icon "notification_bell.ico"
 ```
+---
+
+# Version Update Log
+
+| **Version** | **Update and Description**                                                                                                                                                                                      |
+| ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1.0         | Basic functions                                                                                                                                                                                                 |
+| 2.0         | - **Remonitoring** button to monitor the specific path asynchronously in **Remote Directories Settings**<br>- Added pop-up windows for timeouts                                                                 |
+| 3.0         | - Added default C:/Windows/Media/Alarm01.wav options for music file<br>- User able to browse through .wav and .mp3 file for alert alarm selection<br>- User able to enter the duration of the music/alarm alert |
+
+---
 
