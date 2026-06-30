@@ -74,10 +74,11 @@ class AudioPlayer:
         self._lock = threading.Lock()
         self._initialized = False
         self._last_loaded = None
+        self._play_timer: threading.Timer | None = None
 
-    def trigger(self, mp3_path: str) -> tuple[bool, str]:
+    def trigger(self, mp3_path: str, duration_seconds: int = 1200) -> tuple[bool, str]:
         if pygame is None:
-            return False, "pygame is not installed. Install pygame to enable MP3 playback."
+            return False, "pygame is not installed. Install pygame to enable audio playback."
 
         with self._lock:
             try:
@@ -90,18 +91,43 @@ class AudioPlayer:
                     pygame.mixer.music.load(normalized)
                     self._last_loaded = normalized
 
-                # Avoid overlap and restart from the beginning each time.
+                # Cancel any existing timed stop before restarting.
+                if self._play_timer is not None:
+                    self._play_timer.cancel()
+                    self._play_timer = None
+
+                # Loop indefinitely; a timer will stop it after the requested duration.
                 pygame.mixer.music.stop()
-                pygame.mixer.music.play()
-                return True, "MP3 playback started (or restarted)."
+                pygame.mixer.music.play(loops=-1)
+
+                self._play_timer = threading.Timer(duration_seconds, self._timed_stop)
+                self._play_timer.daemon = True
+                self._play_timer.start()
+
+                mins = duration_seconds // 60
+                return True, f"Audio playback started (looping for {mins} minute(s))."
             except Exception as exc:
                 return False, f"Audio playback error: {exc}"
+
+    def _timed_stop(self) -> None:
+        """Called by the timer thread to stop playback after the scheduled duration."""
+        with self._lock:
+            try:
+                if self._initialized:
+                    pygame.mixer.music.stop()
+            except Exception:
+                pass
+            finally:
+                self._play_timer = None
 
     def shutdown(self) -> None:
         if pygame is None:
             return
         with self._lock:
             try:
+                if self._play_timer is not None:
+                    self._play_timer.cancel()
+                    self._play_timer = None
                 if self._initialized:
                     pygame.mixer.music.stop()
                     pygame.mixer.quit()
@@ -116,6 +142,9 @@ class AudioPlayer:
             return False, "pygame is not installed."
         with self._lock:
             try:
+                if self._play_timer is not None:
+                    self._play_timer.cancel()
+                    self._play_timer = None
                 if not self._initialized:
                     return True, "No active audio playback."
                 pygame.mixer.music.stop()
@@ -348,7 +377,8 @@ class NotifyApp(tk.Tk):
         self.host_var = tk.StringVar()
         self.user_var = tk.StringVar()
         self.key_var = tk.StringVar()
-        self.mp3_var = tk.StringVar()
+        self.mp3_var = tk.StringVar(value=r"C:\Windows\Media\Alarm01.wav")
+        self.play_duration_var = tk.StringVar(value="20")
         self.initial_dir_count_var = tk.StringVar(value="1")
 
         self.directory_rows = []
@@ -392,12 +422,18 @@ class NotifyApp(tk.Tk):
         ttk.Entry(cfg, textvariable=self.key_var, width=72).grid(row=1, column=1, columnspan=2, sticky=W, padx=4, pady=4)
         ttk.Button(cfg, text="Browse", command=self.browse_key).grid(row=1, column=3, sticky=W, padx=4, pady=4)
 
-        ttk.Label(cfg, text="MP3 File:").grid(row=2, column=0, sticky=W, padx=4, pady=4)
+        ttk.Label(cfg, text="Music File:").grid(row=2, column=0, sticky=W, padx=4, pady=4)
         ttk.Entry(cfg, textvariable=self.mp3_var, width=72).grid(row=2, column=1, columnspan=2, sticky=W, padx=4, pady=4)
         mp3_actions = ttk.Frame(cfg)
         mp3_actions.grid(row=2, column=3, sticky=W, padx=4, pady=4)
         ttk.Button(mp3_actions, text="Browse", command=self.browse_mp3).pack(side=LEFT, padx=(0, 4))
         ttk.Button(mp3_actions, text="Stop Music", command=self.stop_music).pack(side=LEFT)
+
+        ttk.Label(cfg, text="Play Duration:").grid(row=3, column=0, sticky=W, padx=4, pady=4)
+        play_dur_frame = ttk.Frame(cfg)
+        play_dur_frame.grid(row=3, column=1, sticky=W, padx=4, pady=4)
+        ttk.Entry(play_dur_frame, textvariable=self.play_duration_var, width=8).pack(side=LEFT)
+        ttk.Label(play_dur_frame, text="minutes  (music loops until this duration is reached)").pack(side=LEFT, padx=(6, 0))
 
         actions = ttk.Frame(root, padding=(0, 8, 0, 8))
         actions.pack(fill=X)
@@ -448,7 +484,7 @@ class NotifyApp(tk.Tk):
 
         footer = ttk.Frame(root, padding=(0, 8, 0, 0))
         footer.pack(fill=X)
-        ttk.Label(footer, text="version=2.0").pack(side=RIGHT)
+        ttk.Label(footer, text="version=3.0").pack(side=RIGHT)
         ttk.Label(footer, text="Please feedback any bug to yee.liang.sak@altera.com").pack(anchor=W)
         doc_label = ttk.Label(
             footer,
@@ -468,8 +504,15 @@ class NotifyApp(tk.Tk):
 
     def browse_mp3(self):
         path = filedialog.askopenfilename(
-            title="Select MP3 File",
-            filetypes=[("MP3 files", "*.mp3"), ("All files", "*.*")],
+            title="Select Music File",
+            initialdir=r"C:\Windows\Media",
+            initialfile="Alarm01.wav",
+            filetypes=[
+                ("Audio files", "*.mp3 *.wav"),
+                ("MP3 files", "*.mp3"),
+                ("WAV files", "*.wav"),
+                ("All files", "*.*"),
+            ],
         )
         if path:
             self.mp3_var.set(path)
@@ -618,10 +661,19 @@ class NotifyApp(tk.Tk):
             messagebox.showerror("Invalid Key", "SSH private key file does not exist.")
             return None
         if not mp3_path:
-            messagebox.showerror("Missing Field", "Local MP3 file path is required.")
+            messagebox.showerror("Missing Field", "Local music file path is required.")
             return None
         if not os.path.isfile(mp3_path):
-            messagebox.showerror("Invalid MP3", "MP3 file does not exist.")
+            messagebox.showerror("Invalid Music File", "Music file does not exist.")
+            return None
+
+        play_duration_str = self.play_duration_var.get().strip()
+        try:
+            play_duration_minutes = int(play_duration_str)
+            if play_duration_minutes < 1:
+                raise ValueError
+        except ValueError:
+            messagebox.showerror("Invalid Duration", "Play duration must be a positive integer (minutes).")
             return None
         if not directory_configs:
             messagebox.showerror("Missing Directories", "Enter at least one remote directory.")
@@ -683,6 +735,7 @@ class NotifyApp(tk.Tk):
             "username": self.user_var.get().strip(),
             "key_path": self.key_var.get().strip(),
             "mp3_path": self.mp3_var.get().strip(),
+            "play_duration_minutes": self.play_duration_var.get().strip(),
             "directories": self.collect_directory_configs(),
             "initial_dir_count": self.initial_dir_count_var.get().strip(),
         }
@@ -696,7 +749,8 @@ class NotifyApp(tk.Tk):
         self.host_var.set(str(data.get("host", "")))
         self.user_var.set(str(data.get("username", "")))
         self.key_var.set(str(data.get("key_path", "")))
-        self.mp3_var.set(str(data.get("mp3_path", "")))
+        self.mp3_var.set(str(data.get("mp3_path", r"C:\Windows\Media\Alarm01.wav")))
+        self.play_duration_var.set(str(data.get("play_duration_minutes", "20")))
 
         saved_dirs = data.get("directories", [])
         if isinstance(saved_dirs, list) and saved_dirs:
@@ -838,7 +892,12 @@ class NotifyApp(tk.Tk):
             self._set_directory_remaining(directory, 0)
             self.show_timeout_popup(directory)
             if self.worker is not None:
-                ok, detail = self.audio_player.trigger(self.worker.settings.mp3_path)
+                try:
+                    duration_minutes = int(self.play_duration_var.get().strip())
+                except ValueError:
+                    duration_minutes = 20
+                duration_seconds = max(60, duration_minutes * 60)
+                ok, detail = self.audio_player.trigger(self.worker.settings.mp3_path, duration_seconds)
                 if ok:
                     self.append_log(f"Playback event [{directory}]: {detail}")
                 else:
